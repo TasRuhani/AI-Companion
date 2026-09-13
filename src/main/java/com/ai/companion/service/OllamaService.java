@@ -1,11 +1,12 @@
 package com.ai.companion.service;
 
-import com.ai.companion.dto.OllamaRequest;
-import com.ai.companion.dto.OllamaResponse;
-import com.ai.companion.exception.OllamaException;
+import com.ai.companion.dto.ChatMessage;
+import com.ai.companion.dto.OllamaChatRequest;
+import com.ai.companion.dto.OllamaChatResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
+
+import java.util.List;
 
 @Service
 public class OllamaService {
@@ -18,35 +19,22 @@ public class OllamaService {
                 .build();
     }
 
-    public String generate(String prompt) {
+    public String generate(List<ChatMessage> messages) {
 
-        OllamaRequest request = new OllamaRequest(
+        OllamaChatRequest request = new OllamaChatRequest(
                 "qwen3:4b",
-                prompt,
+                messages,
                 false
         );
 
-        try {
-            OllamaResponse response = client.post()
-                    .uri("/api/generate")
-                    .body(request)
-                    .retrieve()
-                    .body(OllamaResponse.class);
+        OllamaChatResponse response = client.post()
+                .uri("/api/chat")
+                .body(request)
+                .retrieve()
+                .body(OllamaChatResponse.class);
 
-            if (response == null) {
-                throw new OllamaException(
-                        "Ollama returned an empty response.",
-                        null
-                );
-            }
+        assert response != null;
 
-            return response.response();
-
-        } catch (RestClientException ex) {
-            throw new OllamaException(
-                    "Unable to communicate with Ollama.",
-                    ex
-            );
-        }
+        return response.message().content();
     }
 }
