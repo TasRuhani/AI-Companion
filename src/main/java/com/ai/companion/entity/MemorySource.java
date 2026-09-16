@@ -1,4 +1,7 @@
 package com.ai.companion.entity;
 
-public class MemorySource {
+public enum MemorySource {
+    EXTRACTED,
+    USER_CORRECTED,
+    MANUAL
 }

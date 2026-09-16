@@ -5,6 +5,8 @@ import java.util.List;
 public record OllamaChatRequest(
         String model,
         List<ChatMessage> messages,
-        boolean stream
+        boolean stream,
+        Object format,
+        Boolean think
 ) {
 }

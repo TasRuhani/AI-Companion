@@ -1,5 +1,9 @@
 package com.ai.companion;
 
+import com.ai.companion.entity.Memory;
+import com.ai.companion.entity.MemoryCategory;
+import com.ai.companion.entity.MemorySource;
+import com.ai.companion.service.MemoryService;
 import com.ai.companion.service.OllamaService;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
@@ -14,13 +18,19 @@ public class CompanionApplication {
 	}
 
 //	@Bean
-//	CommandLineRunner test(OllamaService ollamaService) {
+//	CommandLineRunner testMemory(MemoryService memoryService) {
 //		return args -> {
-//			String response = ollamaService.generate(
-//					"what is the structure of ur response json?"
-//			);
 //
-//			System.out.println(response);
+//			Memory memory = new Memory();
+//
+//			memory.setContent("User loves astronomy.");
+//			memory.setRawExcerpt("I really love astronomy.");
+//			memory.setCategory(MemoryCategory.INTEREST); // we'll fix this
+//			memory.setImportance(8);
+//			memory.setConfidence(0.95);
+//			memory.setSource(MemorySource.EXTRACTED);
+//
+//			memoryService.save(memory);
 //		};
 //	}
 
