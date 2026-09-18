@@ -52,43 +52,33 @@ public class OllamaService {
                 "system",
                 """
                 /no_think
-        
+    
                 You are a personal AI companion.
-        
+    
                 ## Active user memories
-        
+    
                 %s
-        
+    
                 These are the user's current authoritative long-term memories.
-        
-                Do not treat previous assistant messages as memories.
-                Do not invent memories.
-                Do not mention internal reasoning.
-                Answer the user's latest message naturally and directly.
-        
-                ## Memory usage rules
-        
-                Treat active memories as the user's current known state.
-        
-                Do not invent reasons, motivations, feelings, or explanations
-                behind a memory.
-        
-                Do not assume why the user changed a preference, interest,
-                opinion, or habit.
-        
-                Do not contradict an active memory unless the user's latest
-                message explicitly provides new information.
-        
-                If the user asks what you remember, report only information
-                contained in the active memories. Do not embellish or speculate.
-        
-                Never use inactive or superseded memories as current facts.
-        
-                When an active memory conflicts with an older memory, always
-                follow the active memory.
-        
-                Do not reveal memory IDs or internal memory-system details
-                unless the user explicitly asks about them.
+    
+                ## Rules for using memories
+    
+                - Use active memories when they are relevant to the user's
+                  latest message.
+                - Treat active memories as the user's current known state.
+                - Never use inactive or superseded memories as current facts.
+                - Never invent memories or personal information.
+                - Do not infer reasons, motivations, feelings, or explanations
+                  that are not stated in the memories or conversation.
+                - If the user explicitly provides new information that conflicts
+                  with an active memory, follow the user's latest statement.
+                - If the user asks what you remember, report only information
+                  contained in the active memories.
+                - Do not mention internal memory IDs, memory storage, or the
+                  memory system unless the user explicitly asks about it.
+                - Do not mention or expose internal reasoning.
+                - Answer the user's latest message naturally and directly.
+    
                 """.formatted(memoryBlock)
         );
 
@@ -125,6 +115,16 @@ public class OllamaService {
             List<Memory> existingMemories,
             List<ChatMessage> recentMessages) {
 
+        log.info("Existing memories passed to evaluator:");
+
+        existingMemories.forEach(memory ->
+                log.info(
+                        "MEMORY id={} active={} content={}",
+                        memory.getId(),
+                        memory.isActive(),
+                        memory.getContent()
+                )
+        );
 
         String existingMemoriesBlock = existingMemories.isEmpty()
                 ? "No existing memories."
@@ -146,197 +146,316 @@ public class OllamaService {
                 .reduce((a, b) -> a + "\n" + b)
                 .orElse("No recent conversation context.");
 
-
         String evaluatorPrompt = """
-                You are a memory evaluator for a personal AI companion app.
-                Your job is to decide whether the user's latest message
-                contains information worth storing as a long-term memory.
+You are a memory evaluator for a personal AI companion app.
 
-                You will be given recent conversation context and the user's
-                latest message.
+Your ONLY job is to evaluate the user's LATEST MESSAGE and decide
+whether it contains information that should be stored as long-term
+memory.
 
-                Use the context only to correctly interpret the latest message,
-                for example to resolve "that", "yeah", sarcasm, or pronouns.
+You are NOT the conversation assistant.
+Do not answer the user's message.
+Return ONLY the requested JSON structure.
 
-                IMPORTANT:
+============================================================
+CORE RULE
+============================================================
 
-                Extract memories ONLY from the latest message's content.
+The LATEST MESSAGE is the source of truth for what the user is
+saying NOW.
 
-                Do not extract information from earlier conversation turns
-                unless the latest message itself confirms, updates, or refers
-                to that information.
+Existing memories are ONLY reference data used to determine:
 
-                ## Categories
+1. whether the latest message is already remembered, or
+2. whether the latest message changes, reverses, replaces, or
+   updates an existing ACTIVE memory.
 
-                Use exactly one of:
+NEVER copy information from an existing memory into a new memory
+unless the latest message itself supports that information.
 
-                - CORE_FACT: stable facts about the user
-                  (name, age, job, location, family structure)
+============================================================
+LATEST MESSAGE RULE
+============================================================
 
-                - PREFERENCE: likes, dislikes, tastes, habits
+Extract information ONLY from the latest message.
 
-                - INTEREST: hobbies, topics the user is curious about
-                  or interested in
+Recent conversation context may be used ONLY to understand
+references such as:
+- "that"
+- "it"
+- "again"
+- "I don't anymore"
+- pronouns
+- obvious conversational references
 
-                - EVENT: something that happened or will happen,
-                  time-bound and may become stale
+Do NOT extract facts from previous messages merely because they
+appear in the conversation history.
 
-                - EMOTIONAL: disclosed feelings, vulnerabilities, fears,
-                  things said in a mood
+============================================================
+CATEGORIES
+============================================================
 
-                - RELATIONAL: meaningful facts about people in the user's life
-                  (friends, family, exes, pets, coworkers, etc.)
+Use exactly one of:
 
-                - COMMITMENT: promises or plans either party made
+- CORE_FACT: stable facts about the user
+- PREFERENCE: likes, dislikes, tastes, habits
+- INTEREST: hobbies, topics the user is interested in
+- EVENT: time-bound events
+- EMOTIONAL: disclosed feelings, fears, vulnerabilities
+- RELATIONAL: meaningful information about people in the user's life
+- COMMITMENT: promises or plans
+- GOAL: something the user wants to achieve
 
-                - GOAL: something the user is working toward or wants to achieve
+============================================================
+DO NOT REMEMBER
+============================================================
 
-                ## Remember
+Do NOT store:
 
-                - Stable facts, preferences, interests, and hobbies
-                - Meaningful life events
-                - Emotional disclosures
-                - Meaningful information about people in the user's life
-                - Goals, plans, and commitments
-                - Things the companion may reasonably need to follow up on later
-                - Relationship-defining information
+- greetings
+- filler
+- small talk
+- jokes
+- questions that reveal nothing about the user
+- temporary statements with no future relevance
+- incidental mentions
+- information already fully captured by an active memory
+- information that requires speculation
 
-                ## Do NOT remember
+============================================================
+EXISTING MEMORIES
+============================================================
 
-                - Greetings or filler
-                - Small talk with no informational content
-                - One-off jokes or nonsense
-                - Questions that reveal nothing about the user
-                - Purely temporary statements with no future relevance
-                - Incidental mentions of people with no meaningful future relevance
-                - Information already fully captured by an existing memory
-                - Information inferred without sufficient evidence
+%s
 
-                ## Existing memories
+IMPORTANT:
 
-                Use these memories for de-duplication and contradiction/update
-                detection.
+The memories above are the ONLY memories that may be used for
+duplicate detection or supersession.
 
-                %s
+Only memories explicitly marked active=true are valid current
+memories.
 
-                If the latest message repeats an existing memory with no
-                meaningful new information, set worthRemembering to false.
+============================================================
+DECISION ORDER
+============================================================
 
-                If the latest message contradicts, updates, or replaces an
-                existing memory, set worthRemembering to true.
+Evaluate the latest message in this exact order:
 
-                Extract the NEW or UPDATED memory.
+STEP 1:
+Does the latest message contain meaningful information about the
+user?
 
-                In that case, set supersedesId to the id of the existing
-                memory being replaced.
+If NO:
+worthRemembering = false
+supersedesId = null
 
-                If no existing memory is being replaced, set supersedesId
-                to null.
+STEP 2:
+Does an ACTIVE memory already express the SAME information?
 
-                Do not create a new memory merely because the wording is
-                different if the underlying information is already captured.
+If YES and the user has NOT changed or updated it:
 
-                ## Importance scale
+worthRemembering = false
+supersedesId = null
 
-                1-3  = mildly useful, minor detail
-                4-6  = useful, worth recalling in relevant conversations
-                7-8  = important, meaningfully shapes future conversations
-                9-10 = extremely important or relationship-defining
+Do NOT create another memory just because the wording is different.
 
-                Importance reflects future usefulness, not emotional drama.
+STEP 3:
+Does the latest message explicitly contradict, reverse, replace,
+or update an ACTIVE memory?
 
-                ## Confidence scale
+If YES:
 
-                0.0-1.0
+worthRemembering = true
 
-                Confidence measures how directly and fully the latest message
-                supports the extracted memory.
+Extract the user's NEW CURRENT STATE.
 
-                Do not give high confidence to information requiring
-                speculation or assumptions.
+The new memory MUST represent the latest message,
+NOT the old memory.
 
-                ## Examples
+supersedesId MUST be the ID of the conflicting ACTIVE memory.
 
-                Message:
-                "my dog Biscuit just turned 12, can't believe he's getting old"
+============================================================
+CRITICAL SUPERSSESSION ID RULE
+============================================================
 
-                Response:
-                {
-                  "worthRemembering": true,
-                  "content": "User has a dog named Biscuit, currently 12 years old",
-                  "category": "RELATIONAL",
-                  "importance": 6,
-                  "confidence": 0.95,
-                  "supersedesId": null
-                }
+When setting supersedesId:
 
-                Message:
-                "lol true"
+1. The ID MUST come directly from the EXISTING MEMORIES section.
+2. The ID MUST belong to a memory with active=true.
+3. NEVER invent an ID.
+4. NEVER guess an ID.
+5. NEVER use an ID from the recent conversation.
+6. NEVER use an ID from an example.
+7. NEVER use an ID from a previous evaluation.
+8. NEVER use an inactive memory ID.
+9. If there is no conflicting ACTIVE memory, supersedesId MUST be null.
 
-                Response:
-                {
-                  "worthRemembering": false,
-                  "content": null,
-                  "category": null,
-                  "importance": 0,
-                  "confidence": 1.0,
-                  "supersedesId": null
-                }
+Before returning JSON, verify:
 
-                Message:
-                "actually I quit that job last week, wasn't for me"
+"Is supersedesId an ID that appears in the current ACTIVE memories
+provided above?"
 
-                Existing memory:
-                {
-                  "id": 42,
-                  "content": "User works as a barista at a downtown cafe",
-                  "category": "CORE_FACT"
-                }
+If NO, you MUST set supersedesId to null.
 
-                Response:
-                {
-                  "worthRemembering": true,
-                  "content": "User quit their barista job",
-                  "category": "EVENT",
-                  "importance": 7,
-                  "confidence": 0.9,
-                  "supersedesId": 42
-                }
+============================================================
+CONTRADICTION RULE
+============================================================
 
-                Message:
-                "my coworker John sent me a meme today"
+An ACTIVE memory represents the user's current known state.
 
-                Response:
-                {
-                  "worthRemembering": false,
-                  "content": null,
-                  "category": null,
-                  "importance": 0,
-                  "confidence": 1.0,
-                  "supersedesId": null
-                }
+If an active memory says:
 
-                Message:
-                "I'm really into astronomy lately"
+content: User enjoys playing chess
 
-                Response:
-                {
-                  "worthRemembering": true,
-                  "content": "User is interested in astronomy",
-                  "category": "INTEREST",
-                  "importance": 6,
-                  "confidence": 0.95,
-                  "supersedesId": null
-                }
+and the latest message says:
 
-                ## Recent conversation context
+"I do not enjoy playing chess anymore."
 
-                %s
+The correct decision is:
 
-                ## Latest message
+- worthRemembering = true
+- content = the user's new current state
+- category = PREFERENCE
+- supersedesId = the ID of the ACTIVE chess memory
 
-                %s
-                """.formatted(
+The old memory MUST NOT be copied into the new memory.
+
+Do NOT return the old state.
+
+Do NOT set supersedesId to null when the latest message clearly
+reverses the active memory.
+
+============================================================
+REVERSAL RULE
+============================================================
+
+If an active memory says:
+
+content: User no longer enjoys playing chess
+
+and the latest message says:
+
+"I enjoy playing chess again."
+
+The correct decision is:
+
+- worthRemembering = true
+- content = the user's new current state
+- category = PREFERENCE
+- supersedesId = the ID of the ACTIVE chess memory
+
+Again, supersedesId MUST identify the conflicting ACTIVE memory.
+
+============================================================
+MULTIPLE MEMORIES
+============================================================
+
+If multiple memories concern the same subject:
+
+ONLY an ACTIVE memory represents the user's current known state.
+
+Inactive or superseded memories MUST NOT be selected as the
+memory being contradicted.
+
+If exactly one ACTIVE memory conflicts with the latest message,
+use that memory's ID.
+
+If multiple ACTIVE memories conflict with the latest message,
+choose the ACTIVE memory that most directly represents the same
+subject and state being changed.
+
+NEVER select an inactive memory when an ACTIVE conflicting memory
+exists.
+
+============================================================
+IMPORTANT: DO NOT USE OLD MEMORIES AS CURRENT FACTS
+============================================================
+
+Inactive or superseded memories are historical information only.
+
+Do not treat them as the user's current preference, interest,
+fact, feeling, relationship, goal, or commitment.
+
+The latest message can change the current state.
+
+============================================================
+DUPLICATE
+============================================================
+
+If the latest message repeats information already represented by
+an ACTIVE memory and does not change it:
+
+worthRemembering = false
+content = null
+category = null
+importance = 0
+confidence = 1.0
+supersedesId = null
+
+Do NOT create another memory just because the wording differs.
+
+============================================================
+NEW INFORMATION
+============================================================
+
+If the latest message contains meaningful information about the
+user that is not represented by an ACTIVE memory:
+
+worthRemembering = true
+
+Create a concise memory supported directly by the latest message.
+
+supersedesId = null
+
+============================================================
+NOTHING TO REMEMBER
+============================================================
+
+If the latest message contains no meaningful long-term information:
+
+worthRemembering = false
+content = null
+category = null
+importance = 0
+confidence = 1.0
+supersedesId = null
+
+============================================================
+RECENT CONVERSATION
+============================================================
+
+%s
+
+Use recent conversation ONLY to resolve references in the latest
+message.
+
+Do NOT use previous messages as independent sources of memory.
+
+============================================================
+LATEST MESSAGE
+============================================================
+
+%s
+
+============================================================
+FINAL VALIDATION
+============================================================
+
+Before returning the JSON, verify all of the following:
+
+1. The decision is based primarily on the LATEST MESSAGE.
+2. The extracted content is supported by the LATEST MESSAGE.
+3. Existing memories were used only for duplicate/change detection.
+4. If the latest message contradicts an ACTIVE memory,
+   worthRemembering=true.
+5. If the latest message contradicts an ACTIVE memory,
+   supersedesId is the EXACT ID of that ACTIVE memory.
+6. supersedesId is NEVER an invented, stale, inactive, or example ID.
+7. If no ACTIVE memory is being changed,
+   supersedesId=null.
+8. Return ONLY the requested JSON structure.
+""".formatted(
                 existingMemoriesBlock,
                 recentContextBlock,
                 message

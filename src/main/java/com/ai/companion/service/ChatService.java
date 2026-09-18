@@ -76,6 +76,11 @@ public class ChatService {
             memory.setCreatedAt(now);
             memory.setUpdatedAt(now);
 
+            System.out.println(
+                    "SAVING MEMORY: content=" + memory.getContent()
+                            + " | supersedesId=" + memory.getSupersedesId()
+            );
+
             memoryService.save(memory);
         }
 

@@ -54,8 +54,10 @@ public class MemoryService {
                     memoryRepository.findById(memory.getSupersedesId());
 
             oldMemory.ifPresent(old -> {
-                old.setActive(false);
-                memoryRepository.save(old);
+                if (old.isActive()) {
+                    old.setActive(false);
+                    memoryRepository.save(old);
+                }
             });
         }
 
