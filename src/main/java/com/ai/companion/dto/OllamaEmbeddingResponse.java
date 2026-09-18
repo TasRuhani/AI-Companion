@@ -1,4 +1,7 @@
 package com.ai.companion.dto;
 
-public class OllamaEmbeddingResponse {
-}
+import java.util.List;
+
+public record OllamaEmbeddingResponse (
+        List<List<Float>> embeddings
+){}

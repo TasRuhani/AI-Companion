@@ -4,6 +4,7 @@ import com.ai.companion.dto.MemoryRequest;
 import com.ai.companion.dto.MemoryResponse;
 import com.ai.companion.entity.Memory;
 import com.ai.companion.repository.MemoryRepository;
+import com.ai.companion.service.EmbeddingService;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -15,8 +16,11 @@ public class MemoryService {
 
     private final MemoryRepository memoryRepository;
 
-    public MemoryService(MemoryRepository memoryRepository) {
+    private final EmbeddingService embeddingService;
+
+    public MemoryService(MemoryRepository memoryRepository, EmbeddingService embeddingService) {
         this.memoryRepository = memoryRepository;
+        this.embeddingService = embeddingService;
     }
 
     public List<Memory> getActiveMemories() {
@@ -61,6 +65,22 @@ public class MemoryService {
             });
         }
 
+        List<Float> embedding = embeddingService.embed(memory.getContent());
+
+        float[] vector = new float[embedding.size()];
+
+        if (embedding.size() != 1024) {
+            throw new IllegalStateException(
+                    "Expected 1024 D embedding bit got " + embedding.size()
+            );
+        }
+
+        for (int i = 0; i < embedding.size(); i++) {
+            vector[i] = embedding.get(i);
+        }
+
+        memory.setEmbedding(vector);
+
         return memoryRepository.save(memory);
     }
 
@@ -88,5 +108,13 @@ public class MemoryService {
                 memory.isActive(),
                 memory.getSource()
         );
+    }
+
+    public void recordReference (Memory memory) {
+        memory.setReferenceCount( memory.getReferenceCount() + 1);
+
+        memory.setLastReferencedAt(LocalDateTime.now());
+
+        memoryRepository.save(memory);
     }
 }

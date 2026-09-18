@@ -16,14 +16,18 @@ public class ChatService {
     private final OllamaService ollamaService;
     private final RedisTemplate<String, ChatMessage> redisTemplate;
     private final MemoryService memoryService;
+    private final MemoryRetrievalService memoryRetrievalService;
 
     public ChatService(
             OllamaService ollamaService,
             RedisTemplate<String, ChatMessage> redisTemplate,
-            MemoryService memoryService) {
+            MemoryService memoryService,
+            MemoryRetrievalService memoryRetrievalService) {
+
         this.ollamaService = ollamaService;
         this.redisTemplate = redisTemplate;
         this.memoryService = memoryService;
+        this.memoryRetrievalService = memoryRetrievalService;
     }
 
     public String chat(String message) {
@@ -36,12 +40,25 @@ public class ChatService {
         redisTemplate.opsForList()
                 .rightPush("conversation", userMessage);
 
+        redisTemplate.opsForList()
+                .trim("conversation", -200, -1);
+
         List<ChatMessage> messages = getConversation();
-        List<Memory> activeMemories = memoryService.getActiveMemories();
 
-        System.out.println("ACTIVE MEMORIES SENT TO MODEL:");
+        // RAG SIIIIIIIIIIIIIIIIIIIIUUUUUUUUUUUUUUUUUUUUUUUU
+        List<Memory> relevantMemories =
+                memoryRetrievalService.retrieveRelevantMemories(
+                        message,
+                        5
+                );
 
-        activeMemories.forEach(memory ->
+        // All active memories are still needed by the memory evaluator
+        List<Memory> activeMemories =
+                memoryService.getActiveMemories();
+
+        System.out.println("RELEVANT MEMORIES SENT TO MODEL:");
+
+        relevantMemories.forEach(memory ->
                 System.out.println(
                         "id=" + memory.getId()
                                 + " | active=" + memory.isActive()
@@ -50,15 +67,21 @@ public class ChatService {
                 )
         );
 
-        String response = ollamaService.generate(messages, activeMemories);
+        String response =
+                ollamaService.generate(
+                        messages,
+                        relevantMemories
+                );
 
-        MemoryEvaluation evaluation = ollamaService.evaluateMemory(
-                message,
-                activeMemories,
-                messages
-        );
+        MemoryEvaluation evaluation =
+                ollamaService.evaluateMemory(
+                        message,
+                        activeMemories,
+                        messages
+                );
 
         if (evaluation.worthRemembering()) {
+
             Memory memory = new Memory();
 
             memory.setContent(evaluation.content());
@@ -94,6 +117,8 @@ public class ChatService {
 
         redisTemplate.opsForList()
                 .rightPush("conversation", assistantMessage);
+        redisTemplate.opsForList()
+                .trim("conversation", -200, -1);
 
         return response;
     }

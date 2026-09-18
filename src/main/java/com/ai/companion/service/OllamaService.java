@@ -34,11 +34,11 @@ public class OllamaService {
                 .build();
     }
 
-    public String generate(List<ChatMessage> messages, List<Memory> activeMemories) {
+    public String generate(List<ChatMessage> messages, List<Memory> relevantMemories) {
 
-        String memoryBlock = activeMemories.isEmpty()
+        String memoryBlock = relevantMemories.isEmpty()
                 ? "No active memories."
-                : activeMemories.stream()
+                : relevantMemories.stream()
                 .map(memory -> String.format(
                         "id: %d | category: %s | content: %s",
                         memory.getId(),
@@ -55,7 +55,7 @@ public class OllamaService {
     
                 You are a personal AI companion.
     
-                ## Active user memories
+                ## Relevant user memories
     
                 %s
     
@@ -63,9 +63,9 @@ public class OllamaService {
     
                 ## Rules for using memories
     
-                - Use active memories when they are relevant to the user's
+                - Use relevant memories when they are relevant to the user's
                   latest message.
-                - Treat active memories as the user's current known state.
+                - Treat retrieved memories as the user's current known state.
                 - Never use inactive or superseded memories as current facts.
                 - Never invent memories or personal information.
                 - Do not infer reasons, motivations, feelings, or explanations
