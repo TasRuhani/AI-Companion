@@ -35,6 +35,22 @@ language and embedding models locally.
 - **Portrait files:** validated PNG files are stored outside the database in a
   configurable directory (default `backend/data/companion-portraits/`).
 
+### Database schema initialization
+
+Flyway runs before Hibernate. V1 creates the user-profile and personal-fact
+tables. V2 removes the legacy `relationships` column only when an older
+`companion_identity` table and that column already exist; on a fresh database,
+that table is created afterward from the current JPA entity, which no longer
+contains the field. Hibernate `ddl-auto=update` currently creates/updates the
+other JPA-managed tables and their entity-declared foreign keys. The Docker
+PostgreSQL initialization script enables pgvector before Flyway/Hibernate
+startup; for native PostgreSQL, create the `vector` extension before starting
+the backend. HNSW indexes are optional manual indexes documented below. If a
+database already recorded the previous V2 checksum, run Flyway `repair` with
+that deployment's configured connection before starting the updated
+application. Repair updates migration metadata without rerunning the already
+applied column removal.
+
 The chat flow loads the active companion identity and user profile, builds
 recent context, evaluates the message and mood, retrieves relevant memories,
 optionally searches the web when enabled, and asks Ollama to generate a reply.
