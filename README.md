@@ -89,7 +89,12 @@ created its tables.
 
 The recommended Compose setup runs PostgreSQL/pgvector, Redis, Ollama, the
 backend, and frontend in containers; it does not require Java, Node.js, or a
-host Ollama installation.
+host Ollama installation. GPU acceleration is optional. Before starting
+Compose, install the GPU vendor's supported host drivers and container runtime
+support if you want Ollama to use a GPU: NVIDIA users need NVIDIA Container
+Toolkit; AMD users need a ROCm-supported Linux setup and AMD device passthrough.
+The supplied Compose configuration currently enables NVIDIA GPUs only; see
+the GPU section below before attempting to use an AMD GPU.
 
 ## Install prerequisites
 
@@ -199,6 +204,77 @@ PostgreSQL with pgvector, Redis, Ollama, downloads the configured models into a
 persistent Ollama volume, builds the Spring Boot API, and builds the React UI
 served by Nginx. Java, Maven, and Node.js are installed inside the build
 containers; only Git and Docker are needed on the host.
+
+### GPU acceleration in Docker Compose
+
+GPU acceleration is optional. Install the vendor-specific host driver and
+container support before starting Compose, and follow the matching subsection.
+The current `docker-compose.yml` configures NVIDIA GPU access only. Docker
+Desktop GPU support and GPU passthrough on Windows/macOS differ from native
+Linux and are not configured by this project.
+
+#### NVIDIA GPUs on Linux
+
+The `ollama` service requests all NVIDIA GPUs through Compose (`gpus: all`).
+The NVIDIA driver alone is not sufficient: Docker also needs NVIDIA Container
+Toolkit configured as its runtime. This project host uses Linux Mint 22.2,
+based on Ubuntu 24.04, and has an RTX 3060; `nvidia-smi` confirms the host
+driver/GPU. If the toolkit has not been installed, run these commands on the
+host (administrator access required), following NVIDIA's
+[Container Toolkit installation guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html):
+
+```bash
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+sudo apt update
+sudo apt install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+Restarting Docker stops and restarts its containers. Confirm the runtime can
+see the GPU before launching the application (the first command downloads a
+CUDA diagnostic image):
+
+```bash
+docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
+```
+
+The output should show the host GPU. Then recreate the Ollama container with
+GPU access:
+
+```bash
+docker compose up -d --force-recreate ollama
+docker compose logs --tail=100 ollama
+```
+
+After a chat request has run inference, verify Ollama reports GPU placement:
+
+```bash
+docker compose exec ollama ollama ps
+nvidia-smi
+```
+
+`ollama ps` reports the processor placement for loaded models; it should show
+GPU use (for example, `100% GPU` or a CPU/GPU split). If Docker reports
+`could not select device driver "" with capabilities: [[gpu]]`, the NVIDIA
+Container Toolkit is missing or Docker was not restarted after configuration.
+
+#### AMD GPUs on Linux
+
+AMD acceleration is **not enabled by the supplied Compose configuration**.
+Install a host driver/ROCm version supported by your AMD GPU and Linux
+distribution, following AMD's
+[ROCm installation guide](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/).
+The Ollama container must also use a ROCm-capable image and be granted access to
+the required AMD devices (commonly `/dev/kfd` and `/dev/dri`). Those image and
+device settings are not present in this project's Compose file, so installing
+ROCm alone will not enable AMD acceleration here. Do not add NVIDIA's
+`gpus: all` setting as an AMD substitute; the Compose service needs a separate
+ROCm configuration.
 
 Copy the root environment template:
 
