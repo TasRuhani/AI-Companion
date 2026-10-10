@@ -63,6 +63,24 @@ The repository does **not** create HNSW indexes through a migration yet. The
 setup below provides optional HNSW index commands to run after the backend has
 created its tables.
 
+### Review conversation-suggested facts
+
+After each chat turn, Ollama evaluates the user's latest message and may suggest
+a durable personal fact. Suggestions appear in **Memory → Personal Facts** as
+proposed items; they are not automatically treated as confirmed facts or
+included in companion prompts. Review each suggestion using the available
+actions:
+
+- **Correct** edits the wording; the edited fact remains proposed for review.
+- **Confirm** approves the fact and makes it available in companion prompts.
+- **Reject** records that the fact should not be used.
+- **Delete** removes the fact.
+
+Facts added manually in this section also start as proposed, so confirm them
+before expecting the companion to use them. This review queue is separate from
+the `/api/memories` long-term memory store used for vector similarity retrieval;
+conversation suggestions do not automatically create entries in that store.
+
 ### Data and identity behavior
 
 - Onboarding requires a user profile and an active companion identity before
@@ -72,7 +90,8 @@ created its tables.
   field.
 - Character research returns an identity draft; review it before saving.
 - Personal facts are stored separately from companion identity and support
-  proposed, confirmed, and rejected states.
+  proposed, confirmed, and rejected states; conversation suggestions are
+  reviewed in Settings before they are included in companion prompts.
 - Conversation history is stored per companion identity in PostgreSQL.
 - Reset Companion preserves the user profile; Reset My Profile preserves the
   companion identity; Reset Everything removes the saved user and companion

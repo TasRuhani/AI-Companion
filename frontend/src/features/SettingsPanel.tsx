@@ -1,26 +1,21 @@
 import { useEffect, useState } from 'react'
 import { LoaderCircle, Save, UserRound, UserRoundCog } from 'lucide-react'
 import {
-  addPersonalFact,
-  deletePersonalFact,
-  editPersonalFact,
   getPersonalFacts,
   getUserProfile,
   resetAll,
   resetUserProfile,
   saveUserProfile,
-  updatePersonalFactStatus,
 } from '../api/settings'
 import { ApiError } from '../api/types'
 import type {
   CompanionIdentity,
   PersonalFact,
-  PersonalFactStatus,
   UserProfileFields,
 } from '../api/types'
 import IdentityPanel from './IdentityPanel'
 
-type Tab = 'profile' | 'companion' | 'facts' | 'resets'
+type Tab = 'profile' | 'companion' | 'resets'
 
 const emptyProfile: UserProfileFields = {
   name: '',
@@ -56,7 +51,6 @@ const profileFields: {
 const tabs: { id: Tab; label: string }[] = [
   { id: 'profile', label: 'My profile' },
   { id: 'companion', label: 'Companion' },
-  { id: 'facts', label: 'Personal facts' },
   { id: 'resets', label: 'Reset data' },
 ]
 
@@ -76,9 +70,6 @@ export default function SettingsPanel(props: SettingsPanelProps) {
   const [profile, setProfile] = useState<UserProfileFields>(emptyProfile)
   const [profileExists, setProfileExists] = useState(false)
   const [facts, setFacts] = useState<PersonalFact[]>([])
-  const [factDraft, setFactDraft] = useState('')
-  const [editingFactId, setEditingFactId] = useState<number | null>(null)
-  const [editingFactContent, setEditingFactContent] = useState('')
   const [loading, setLoading] = useState(true)
   const [working, setWorking] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -159,66 +150,6 @@ export default function SettingsPanel(props: SettingsPanelProps) {
     }
   }
 
-  async function addFact(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!factDraft.trim() || working) return
-    setWorking(true)
-    setError(null)
-    try {
-      const fact = await addPersonalFact(factDraft.trim())
-      setFacts((current) => [fact, ...current])
-      setFactDraft('')
-      setNotice('Fact saved as proposed. Confirm it to include it in companion prompts.')
-    } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : 'Could not save the fact.')
-    } finally {
-      setWorking(false)
-    }
-  }
-
-  async function changeFactStatus(fact: PersonalFact, status: PersonalFactStatus) {
-    setWorking(true)
-    setError(null)
-    try {
-      const updated = await updatePersonalFactStatus(fact.id, status)
-      setFacts((current) => current.map((item) => item.id === fact.id ? updated : item))
-    } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : 'Could not update the fact.')
-    } finally {
-      setWorking(false)
-    }
-  }
-
-  async function removeFact(fact: PersonalFact) {
-    if (!window.confirm('Delete this personal fact?')) return
-    setWorking(true)
-    setError(null)
-    try {
-      await deletePersonalFact(fact.id)
-      setFacts((current) => current.filter((item) => item.id !== fact.id))
-    } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : 'Could not delete the fact.')
-    } finally {
-      setWorking(false)
-    }
-  }
-
-  async function saveEditedFact(fact: PersonalFact) {
-    if (!editingFactContent.trim() || working) return
-    setWorking(true)
-    setError(null)
-    try {
-      const updated = await editPersonalFact(fact.id, editingFactContent.trim())
-      setFacts((current) => current.map((item) => item.id === fact.id ? updated : item))
-      setEditingFactId(null)
-      setNotice('Personal fact updated.')
-    } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : 'Could not update the fact.')
-    } finally {
-      setWorking(false)
-    }
-  }
-
   async function performReset(kind: 'profile' | 'all') {
     const message = kind === 'profile'
       ? 'Reset your profile and all personal facts? Companion identity and conversation will remain.'
@@ -260,7 +191,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
           <p className="eyebrow">YOUR COMPANION, YOUR WAY</p>
           <h1>Settings</h1>
           <p className="section-intro">
-            Your profile, companion identity, personal facts, and data controls.
+            Your profile, companion identity, and data controls.
           </p>
         </div>
         <div className="section-icon"><UserRoundCog size={19} /></div>
@@ -342,44 +273,6 @@ export default function SettingsPanel(props: SettingsPanelProps) {
           onIdentityChange={props.onIdentityChange}
           onReload={props.onReload}
         />
-      ) : tab === 'facts' ? (
-        <div className="settings-section">
-          <div className="form-heading"><div><p className="eyebrow">PERSONAL FACTS</p><h2>Review what your companion knows</h2></div></div>
-          <p className="section-intro">Only confirmed facts are included in companion prompts. Add a fact here, then confirm it yourself.</p>
-          <form className="fact-compose" onSubmit={(event) => void addFact(event)}>
-            <label className="field field-full"><span>Add a personal fact</span><textarea rows={2} value={factDraft} maxLength={2000} onChange={(event) => setFactDraft(event.target.value)} placeholder="For example: I prefer short answers when I'm busy." /></label>
-            <button className="button button-primary" type="submit" disabled={working || !factDraft.trim()}>Add proposed fact</button>
-          </form>
-          {facts.length === 0 ? (
-            <div className="empty-state"><p>No personal facts saved yet.</p></div>
-          ) : (
-            <div className="memory-list">
-              {facts.map((fact) => (
-                <article className="memory-item" key={fact.id}>
-                  <div className="memory-item-top"><span className="memory-category">{fact.source}</span><span className="memory-status">{fact.status.toLowerCase()}</span></div>
-                  {editingFactId === fact.id ? (
-                    <div className="fact-edit">
-                      <textarea rows={2} maxLength={2000} value={editingFactContent} onChange={(event) => setEditingFactContent(event.target.value)} />
-                      <button className="text-action" type="button" disabled={working} onClick={() => void saveEditedFact(fact)}>Save correction</button>
-                      <button className="text-action" type="button" onClick={() => setEditingFactId(null)}>Cancel</button>
-                    </div>
-                  ) : <p>{fact.content}</p>}
-                  <p className="fact-reason">{fact.reviewReason}</p>
-                  <div className="fact-actions">
-                    {editingFactId !== fact.id && <button className="text-action" type="button" disabled={working} onClick={() => { setEditingFactId(fact.id); setEditingFactContent(fact.content) }}>Correct</button>}
-                    {fact.status !== 'CONFIRMED' && <button className="text-action" type="button" disabled={working} onClick={() => void changeFactStatus(fact, 'CONFIRMED')}>Confirm</button>}
-                    {fact.status !== 'REJECTED' && <button className="text-action" type="button" disabled={working} onClick={() => void changeFactStatus(fact, 'REJECTED')}>Reject</button>}
-                    {fact.status !== 'PROPOSED' && <button className="text-action" type="button" disabled={working} onClick={() => void changeFactStatus(fact, 'PROPOSED')}>Mark proposed</button>}
-                    <button className="text-action fact-delete" type="button" disabled={working} onClick={() => void removeFact(fact)}>Delete</button>
-                  </div>
-                  <div className="memory-meta">
-                    <span>Added {new Date(fact.createdAt).toLocaleDateString()}</span>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </div>
       ) : (
         <div className="settings-section">
           <div className="form-heading"><div><p className="eyebrow">DATA CONTROLS</p><h2>Choose what to reset</h2></div></div>
