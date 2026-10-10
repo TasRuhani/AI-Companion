@@ -1,4 +1,6 @@
 package com.ai.companion.dto;
 
-public class CompanionResearchRequest {
+public record CompanionResearchRequest(
+        String character
+) {
 }

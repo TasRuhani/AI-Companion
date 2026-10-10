@@ -37,7 +37,7 @@ public class MemoryRetrievalService {
 
         return memoryRepository.findSimilarActiveMemories(
                 vector,
-                0.45,
+                0.35,
                 limit
         );
     }

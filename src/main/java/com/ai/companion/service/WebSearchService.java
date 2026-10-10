@@ -1,4 +1,13 @@
 package com.ai.companion.service;
 
-public class WebSearchService {
+import com.ai.companion.dto.WebSearchResult;
+
+import java.util.List;
+
+public interface WebSearchService {
+
+    List<WebSearchResult> search(
+            String query,
+            int limit
+    );
 }

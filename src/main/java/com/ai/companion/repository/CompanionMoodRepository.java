@@ -1,4 +1,8 @@
 package com.ai.companion.repository;
 
-public class CompanionMoodRepository {
+import com.ai.companion.entity.CompanionMood;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface CompanionMoodRepository
+        extends JpaRepository<CompanionMood, Long> {
 }

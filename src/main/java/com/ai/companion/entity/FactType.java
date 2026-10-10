@@ -1,4 +1,18 @@
 package com.ai.companion.entity;
 
-public class FactType {
+public enum FactType {
+
+    BACKSTORY,
+
+    RELATIONSHIP,
+
+    LIKE,
+
+    DISLIKE,
+
+    PERSONALITY,
+
+    EXPERIENCE,
+
+    WORLD_KNOWLEDGE
 }

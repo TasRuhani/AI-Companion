@@ -1,7 +1,7 @@
 package com.ai.companion.service;
 
-import com.ai.companion.dto.ChatMessage;
-import com.ai.companion.dto.MemoryEvaluation;
+import com.ai.companion.dto.*;
+import com.ai.companion.entity.CompanionMood;
 import com.ai.companion.entity.Memory;
 import com.ai.companion.entity.MemorySource;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -17,17 +17,25 @@ public class ChatService {
     private final RedisTemplate<String, ChatMessage> redisTemplate;
     private final MemoryService memoryService;
     private final MemoryRetrievalService memoryRetrievalService;
+    private final MoodService moodService;
+    private final WebSearchService webSearchService;
+    private final ProactiveMessageService proactiveMessageService;
 
     public ChatService(
             OllamaService ollamaService,
             RedisTemplate<String, ChatMessage> redisTemplate,
             MemoryService memoryService,
-            MemoryRetrievalService memoryRetrievalService) {
+            MemoryRetrievalService memoryRetrievalService,
+            MoodService moodService, WebSearchService webSearchService,
+            ProactiveMessageService proactiveMessageService) {
 
         this.ollamaService = ollamaService;
         this.redisTemplate = redisTemplate;
         this.memoryService = memoryService;
         this.memoryRetrievalService = memoryRetrievalService;
+        this.moodService = moodService;
+        this.webSearchService = webSearchService;
+        this.proactiveMessageService = proactiveMessageService;
     }
 
     public String chat(String message) {
@@ -45,18 +53,47 @@ public class ChatService {
 
         List<ChatMessage> messages = getConversation();
 
-        // RAG SIIIIIIIIIIIIIIIIIIIIUUUUUUUUUUUUUUUUUUUUUUUU
+        proactiveMessageService.recordUserInteraction();
+
+        InteractionEvaluation interaction =
+                ollamaService.evaluateInteraction(
+                        message,
+                        messages
+                );
+
+        System.out.println(
+                "INTERACTION TYPE: "
+                        + interaction.interactionType()
+        );
+
+        System.out.println(
+                "CONFIDENCE: "
+                        + interaction.confidence()
+        );
+
+        CompanionMood mood =
+                moodService.updateMood(
+                        interaction.interactionType(),
+                        interaction.confidence()
+                );
+
+        System.out.println(
+                "CURRENT MOOD: "
+                        + mood.getMoodScore()
+        );
+
         List<Memory> relevantMemories =
                 memoryRetrievalService.retrieveRelevantMemories(
                         message,
                         5
                 );
 
-        // All active memories are still needed by the memory evaluator
         List<Memory> activeMemories =
                 memoryService.getActiveMemories();
 
-        System.out.println("RELEVANT MEMORIES SENT TO MODEL:");
+        System.out.println(
+                "RELEVANT MEMORIES SENT TO MODEL:"
+        );
 
         relevantMemories.forEach(memory ->
                 System.out.println(
@@ -67,11 +104,51 @@ public class ChatService {
                 )
         );
 
-        String response =
-                ollamaService.generate(
-                        messages,
-                        relevantMemories
+        ToolDecision toolDecision =
+                ollamaService.evaluateToolDecision(
+                        message,
+                        messages
                 );
+
+        System.out.println(
+                "TOOL DECISION: "
+                        + toolDecision.action()
+                        + " | QUERY: "
+                        + toolDecision.query()
+        );
+
+        String response;
+
+        if (toolDecision.action() == ToolDecision.Action.WEB_SEARCH) {
+
+            List<WebSearchResult> webResults =
+                    webSearchService.search(
+                            toolDecision.query(),
+                            5
+                    );
+
+            System.out.println(
+                    "WEB SEARCH RESULTS: "
+                            + webResults.size()
+            );
+
+            response =
+                    ollamaService.generateWithWebResults(
+                            messages,
+                            relevantMemories,
+                            mood,
+                            webResults
+                    );
+
+        } else {
+
+            response =
+                    ollamaService.generate(
+                            messages,
+                            relevantMemories,
+                            mood
+                    );
+        }
 
         MemoryEvaluation evaluation =
                 ollamaService.evaluateMemory(
@@ -80,51 +157,97 @@ public class ChatService {
                         messages
                 );
 
-        if (evaluation.worthRemembering()) {
+        if (evaluation.worthRemembering()
+                && evaluation.content() != null
+                && !evaluation.content().isBlank()) {
 
             Memory memory = new Memory();
 
-            memory.setContent(evaluation.content());
-            memory.setCategory(evaluation.memoryCategory());
-            memory.setImportance(evaluation.importance());
-            memory.setConfidence(evaluation.confidence());
-            memory.setSupersedesId(evaluation.supersedesId());
-            memory.setRawExcerpt(message);
-            memory.setReferenceCount(0);
-            memory.setActive(true);
-            memory.setSource(MemorySource.EXTRACTED);
+            memory.setContent(
+                    evaluation.content()
+            );
 
-            LocalDateTime now = LocalDateTime.now();
+            memory.setCategory(
+                    evaluation.memoryCategory()
+            );
+
+            memory.setImportance(
+                    evaluation.importance()
+            );
+
+            memory.setConfidence(
+                    evaluation.confidence()
+            );
+
+            memory.setSupersedesId(
+                    evaluation.supersedesId()
+            );
+
+            memory.setRawExcerpt(
+                    message
+            );
+
+            memory.setReferenceCount(0);
+
+            memory.setActive(true);
+
+            memory.setSource(
+                    MemorySource.EXTRACTED
+            );
+
+            LocalDateTime now =
+                    LocalDateTime.now();
 
             memory.setCreatedAt(now);
             memory.setUpdatedAt(now);
 
             System.out.println(
-                    "SAVING MEMORY: content=" + memory.getContent()
-                            + " | supersedesId=" + memory.getSupersedesId()
+                    "SAVING MEMORY: content="
+                            + memory.getContent()
+                            + " | supersedesId="
+                            + memory.getSupersedesId()
             );
 
             memoryService.save(memory);
         }
 
-        System.out.println("MEMORY EVALUATION:");
-        System.out.println(evaluation);
-
-        ChatMessage assistantMessage = new ChatMessage(
-                "assistant",
-                response
+        System.out.println(
+                "MEMORY EVALUATION:"
         );
 
+        System.out.println(
+                evaluation
+        );
+
+        ChatMessage assistantMessage =
+                new ChatMessage(
+                        "assistant",
+                        response
+                );
+
         redisTemplate.opsForList()
-                .rightPush("conversation", assistantMessage);
+                .rightPush(
+                        "conversation",
+                        assistantMessage
+                );
+
         redisTemplate.opsForList()
-                .trim("conversation", -200, -1);
+                .trim(
+                        "conversation",
+                        -200,
+                        -1
+                );
 
         return response;
     }
 
     private List<ChatMessage> getConversation() {
+
         return redisTemplate.opsForList()
-                .range("conversation", -20, -1);
+                .range(
+                        "conversation",
+                        -20,
+                        -1
+                );
     }
 }

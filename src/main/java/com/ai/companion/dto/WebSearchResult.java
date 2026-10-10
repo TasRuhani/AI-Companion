@@ -1,4 +1,7 @@
 package com.ai.companion.dto;
 
-public class WebSearchResult {
-}
+public record WebSearchResult(
+        String title,
+        String url,
+        String snippet
+) {}
