@@ -6,7 +6,6 @@ public record CharacterProfile(
         String background,
         String history,
         String speechStyle,
-        String values,
-        String relationships
+        String values
 ) {
 }

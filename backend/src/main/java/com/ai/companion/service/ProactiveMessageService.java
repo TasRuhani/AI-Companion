@@ -1,8 +1,13 @@
 package com.ai.companion.service;
 
 import com.ai.companion.dto.ChatMessage;
+import com.ai.companion.entity.CompanionIdentity;
 import com.ai.companion.entity.CompanionMood;
+import com.ai.companion.entity.ConversationMessage;
 import com.ai.companion.entity.InteractionType;
+import com.ai.companion.repository.ConversationMessageRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -13,11 +18,14 @@ import java.util.List;
 @Service
 public class ProactiveMessageService {
 
+    private static final Logger log = LoggerFactory.getLogger(ProactiveMessageService.class);
     private static final long PROACTIVE_RETRY_SECONDS = 600;
 
     private final OllamaService ollamaService;
     private final MoodService moodService;
     private final RedisTemplate<String, ChatMessage> redisTemplate;
+    private final CompanionIdentityService identityService;
+    private final ConversationMessageRepository conversationMessageRepository;
 
     private Instant lastInteractionAt;
     private Instant lastProactiveMessageAt;
@@ -28,19 +36,26 @@ public class ProactiveMessageService {
     public ProactiveMessageService(
             OllamaService ollamaService,
             MoodService moodService,
-            RedisTemplate<String, ChatMessage> redisTemplate) {
+            RedisTemplate<String, ChatMessage> redisTemplate,
+            CompanionIdentityService identityService,
+            ConversationMessageRepository conversationMessageRepository) {
 
         this.ollamaService = ollamaService;
         this.moodService = moodService;
         this.redisTemplate = redisTemplate;
+        this.identityService = identityService;
+        this.conversationMessageRepository = conversationMessageRepository;
     }
 
-    public void check() {
+    public synchronized void check() {
+
+        if (!identityService.exists()) {
+            resetTracking();
+            return;
+        }
 
         if (checkInProgress) {
-            System.out.println(
-                    "Proactive check already running. Skipping."
-            );
+            log.debug("Proactive check already running; skipping.");
             return;
         }
 
@@ -49,10 +64,7 @@ public class ProactiveMessageService {
         try {
 
             if (lastInteractionAt == null) {
-                System.out.println(
-                        "No user interaction recorded yet. "
-                                + "Skipping proactive check."
-                );
+                log.debug("No user interaction recorded yet; skipping proactive check.");
                 return;
             }
 
@@ -69,9 +81,8 @@ public class ProactiveMessageService {
                     ).getSeconds();
 
             if (secondsSinceLastInteraction < 300) {
-                System.out.println(
-                        "Too soon to proactively message."
-                );
+                log.debug("Skipping proactive message; last interaction was {} seconds ago.",
+                        secondsSinceLastInteraction);
                 return;
             }
 
@@ -86,11 +97,8 @@ public class ProactiveMessageService {
                 if (secondsSinceProactiveMessage
                         < PROACTIVE_RETRY_SECONDS) {
 
-                    System.out.println(
-                            "Waiting for response to proactive message. "
-                                    + "Seconds elapsed: "
-                                    + secondsSinceProactiveMessage
-                    );
+                    log.debug("Waiting for a response to the proactive message; {} seconds elapsed.",
+                            secondsSinceProactiveMessage);
 
                     return;
                 }
@@ -103,22 +111,14 @@ public class ProactiveMessageService {
                             messages
                     );
 
-            System.out.println(
-                    "Seconds since last interaction: "
-                            + secondsSinceLastInteraction
-            );
-
-            System.out.println(
-                    "Proactive decision: " + decision
-            );
+            log.debug("Proactive-message decision: {} ({} seconds since last interaction).",
+                    decision, secondsSinceLastInteraction);
 
             if (decision.equalsIgnoreCase("MESSAGE")) {
 
                 if (proactiveMessagePending) {
 
-                    System.out.println(
-                            "Previous proactive message was ignored."
-                    );
+                    log.info("Previous proactive message was ignored.");
 
                     moodService.updateMood(
                             InteractionType.IGNORED,
@@ -127,25 +127,28 @@ public class ProactiveMessageService {
 
                     mood = moodService.getMood();
 
-                    System.out.println(
-                            "Mood after ignored proactive message: "
-                                    + mood.getMoodScore()
-                    );
+                    log.debug("Mood after ignored proactive message: {}.", mood.getMoodScore());
                 }
 
-                String proactiveMessage =
-                        ollamaService.generateProactiveMessage(
-                                secondsSinceLastInteraction,
-                                mood.getMoodScore(),
-                                messages
-                        );
-
-                System.out.println(
-                        "PROACTIVE MESSAGE: " + proactiveMessage
+                String content = ollamaService.generateProactiveMessage(
+                        secondsSinceLastInteraction,
+                        mood.getMoodScore(),
+                        messages
                 );
+                CompanionIdentity identity = identityService.getIdentity();
+                ConversationMessage proactiveMessage = new ConversationMessage();
+                proactiveMessage.setIdentity(identity);
+                proactiveMessage.setRole("assistant");
+                proactiveMessage.setContent(content);
+                conversationMessageRepository.save(proactiveMessage);
 
                 lastProactiveMessageAt = Instant.now();
                 proactiveMessagePending = true;
+                ChatMessage chatMessage = new ChatMessage("assistant", content);
+                redisTemplate.opsForList().rightPush("conversation", chatMessage);
+                redisTemplate.opsForList().trim("conversation", -200, -1);
+
+                log.info("Generated and stored a proactive message for identity {}.", identity.getId());
             }
 
         } finally {
@@ -154,7 +157,7 @@ public class ProactiveMessageService {
         }
     }
 
-    public void recordUserInteraction() {
+    public synchronized void recordUserInteraction() {
 
         lastInteractionAt = Instant.now();
 
@@ -163,14 +166,20 @@ public class ProactiveMessageService {
 
             proactiveMessagePending = false;
 
-            System.out.println(
-                    "USER RESPONDED TO PROACTIVE MESSAGE"
-            );
+            log.debug("User responded to the pending proactive message.");
         }
 
-        System.out.println(
-                "USER INTERACTION RECORDED AT: "
-                        + lastInteractionAt
-        );
+        log.debug("Recorded user interaction at {}.", lastInteractionAt);
+    }
+
+    public synchronized void resetTracking() {
+        lastInteractionAt = null;
+        lastProactiveMessageAt = null;
+        proactiveMessagePending = false;
+    }
+
+    public synchronized void resetTrackingAfter(Runnable persistentReset) {
+        persistentReset.run();
+        resetTracking();
     }
 }

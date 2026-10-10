@@ -37,15 +37,15 @@ public class CompanionIdentity {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String values;
 
-    @Column(columnDefinition = "TEXT")
-    private String relationships;
-
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private IdentitySource source;
 
     @Column(nullable = false)
     private boolean active = true;
+
+    @Column(length = 36)
+    private String portraitId;
 
     @Column(nullable = false)
     private Instant createdAt;

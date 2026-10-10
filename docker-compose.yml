@@ -1,0 +1,99 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: companion
+      POSTGRES_USER: ${DB_USERNAME:-companion_app}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in the root .env file}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./backend/src/main/resources/db/docker:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  ollama-models:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull qwen3.5:4b && ollama pull bge-m3"]
+    restart: "no"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/companion
+      DB_USERNAME: ${DB_USERNAME:-companion_app}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in the root .env file}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      OLLAMA_BASE_URL: http://ollama:11434
+      WEB_SEARCH_ENABLED: ${WEB_SEARCH_ENABLED:-false}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      COMPANION_PORTRAIT_STORAGE_DIR: /app/data/companion-portraits
+      COMPANION_PORTRAIT_MAX_FILE_SIZE: ${COMPANION_PORTRAIT_MAX_FILE_SIZE:-5MB}
+      COMPANION_PORTRAIT_MAX_REQUEST_SIZE: ${COMPANION_PORTRAIT_MAX_REQUEST_SIZE:-6MB}
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - portrait-data:/app/data/companion-portraits
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama-models:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres-data:
+  redis-data:
+  ollama-data:
+  portrait-data:

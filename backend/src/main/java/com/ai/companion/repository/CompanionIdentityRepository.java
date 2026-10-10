@@ -9,4 +9,6 @@ public interface CompanionIdentityRepository
         extends JpaRepository<CompanionIdentity, Long> {
 
     Optional<CompanionIdentity> findFirstByActiveTrue();
+
+    java.util.List<CompanionIdentity> findAllByPortraitIdIsNotNull();
 }

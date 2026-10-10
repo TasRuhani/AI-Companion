@@ -7,6 +7,8 @@ import com.ai.companion.entity.MoodEvent;
 import com.ai.companion.repository.CompanionMoodRepository;
 import com.ai.companion.repository.CompanionProfileRepository;
 import com.ai.companion.repository.MoodEventRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -14,6 +16,8 @@ import java.time.Instant;
 
 @Service
 public class MoodService {
+
+    private static final Logger log = LoggerFactory.getLogger(MoodService.class);
 
     private final CompanionMoodRepository moodRepository;
     private final MoodEventRepository moodEventRepository;
@@ -70,9 +74,7 @@ public class MoodService {
 
         if (isRapidFire(mood, now)) {
 
-            System.out.println(
-                    "MOOD UPDATE SKIPPED: interaction arrived too quickly."
-            );
+            log.debug("Skipped mood update because the interaction arrived too quickly.");
 
             return mood;
         }
@@ -226,59 +228,20 @@ public class MoodService {
 
         moodEventRepository.save(event);
 
-        System.out.println(
-                "MOOD UPDATE:"
-        );
-
-        System.out.println(
-                "  Interaction: "
-                        + interactionType
-        );
-
-        System.out.println(
-                "  Confidence: "
-                        + confidence
-        );
-
-        System.out.println(
-                "  Old score: "
-                        + oldScore
-        );
-
-        System.out.println(
-                "  Base delta: "
-                        + baseDelta
-        );
-
-        System.out.println(
-                "  Confidence multiplier: "
-                        + confidenceMultiplier
-        );
-
-        System.out.println(
-                "  Damping factor: "
-                        + dampingFactor
-        );
-
-        System.out.println(
-                "  Boundary multiplier: "
-                        + boundaryMultiplier
-        );
-
-        System.out.println(
-                "  Effective delta: "
-                        + effectiveDelta
-        );
-
-        System.out.println(
-                "  New score: "
-                        + newScore
-        );
-
-        System.out.println(
-                "  Recent trend: "
-                        + newTrend
-        );
+        log.debug(
+                "Updated mood: interaction={}, confidence={}, oldScore={}, baseDelta={}, "
+                        + "confidenceMultiplier={}, dampingFactor={}, boundaryMultiplier={}, "
+                        + "effectiveDelta={}, newScore={}, recentTrend={}.",
+                interactionType,
+                confidence,
+                oldScore,
+                baseDelta,
+                confidenceMultiplier,
+                dampingFactor,
+                boundaryMultiplier,
+                effectiveDelta,
+                newScore,
+                newTrend);
 
         return savedMood;
     }

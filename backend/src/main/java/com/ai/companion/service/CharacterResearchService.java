@@ -26,13 +26,21 @@ public class CharacterResearchService {
         List<WebSearchResult> results =
                 webSearchService.search(
                         characterName
-                                + " personality background history relationships",
+                                + " personality background history speech style values",
                         10
                 );
 
-        return ollamaService.buildCharacterProfile(
+        CharacterProfile researchedProfile = ollamaService.buildCharacterProfile(
                 characterName,
                 results
+        );
+        return new CharacterProfile(
+                researchedProfile.name(),
+                researchedProfile.personality(),
+                researchedProfile.background(),
+                researchedProfile.history(),
+                researchedProfile.speechStyle(),
+                researchedProfile.values()
         );
     }
 }

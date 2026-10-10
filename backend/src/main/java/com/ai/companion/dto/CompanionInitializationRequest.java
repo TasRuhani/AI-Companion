@@ -1,19 +1,20 @@
 package com.ai.companion.dto;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+
 public record CompanionInitializationRequest(
 
-        String name,
+        @NotBlank @Size(max = 120) String name,
 
-        String personality,
+        @NotBlank @Size(max = 10000) String personality,
 
-        String background,
+        @NotBlank @Size(max = 10000) String background,
 
-        String history,
+        @NotBlank @Size(max = 10000) String history,
 
-        String speechStyle,
+        @NotBlank @Size(max = 10000) String speechStyle,
 
-        String values,
-
-        String relationships
+        @NotBlank @Size(max = 10000) String values
 ) {
 }

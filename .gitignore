@@ -1,8 +1,19 @@
 HELP.md
 target/
-.mvn/wrapper/maven-wrapper.jar
+**/.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+backend/data/companion-portraits/
+*.log
+*.dump
+.env
+.env.*
+!.env.example
 
 ### STS ###
 .apt_generated

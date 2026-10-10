@@ -2,6 +2,7 @@ package com.ai.companion.service;
 
 import com.ai.companion.dto.OllamaEmbeddingRequest;
 import com.ai.companion.dto.OllamaEmbeddingResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -12,9 +13,10 @@ public class EmbeddingService {
 
     private final RestClient restClient;
 
-    public EmbeddingService() {
+    public EmbeddingService(
+            @Value("${companion.ollama.base-url:http://localhost:11434}") String ollamaBaseUrl) {
         this.restClient = RestClient.builder()
-                .baseUrl("http://localhost:11434")
+                .baseUrl(ollamaBaseUrl)
                 .build();
     }
 

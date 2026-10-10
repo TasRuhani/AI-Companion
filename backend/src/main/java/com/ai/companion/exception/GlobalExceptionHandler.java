@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.time.LocalDateTime;
 
@@ -61,6 +63,30 @@ public class GlobalExceptionHandler {
         return buildError(
                 HttpStatus.BAD_REQUEST,
                 "Invalid or malformed request body",
+                request
+        );
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiError> handleStatusException(
+            ResponseStatusException ex,
+            HttpServletRequest request
+    ) {
+        HttpStatus status = HttpStatus.valueOf(ex.getStatusCode().value());
+        String message = ex.getReason() == null
+                ? status.getReasonPhrase()
+                : ex.getReason();
+        return buildError(status, message, request);
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiError> handleUploadTooLarge(
+            MaxUploadSizeExceededException ex,
+            HttpServletRequest request
+    ) {
+        return buildError(
+                HttpStatus.PAYLOAD_TOO_LARGE,
+                "The uploaded file exceeds the configured size limit.",
                 request
         );
     }

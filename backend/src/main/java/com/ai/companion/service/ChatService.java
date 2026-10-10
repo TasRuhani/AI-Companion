@@ -1,49 +1,87 @@
 package com.ai.companion.service;
 
 import com.ai.companion.dto.*;
+import com.ai.companion.entity.CompanionIdentity;
 import com.ai.companion.entity.CompanionMood;
+import com.ai.companion.entity.ConversationMessage;
 import com.ai.companion.entity.Memory;
-import com.ai.companion.entity.MemorySource;
+import com.ai.companion.repository.ConversationMessageRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.client.RestClientException;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
 public class ChatService {
 
+    private static final Logger log = LoggerFactory.getLogger(ChatService.class);
+
     private final OllamaService ollamaService;
     private final RedisTemplate<String, ChatMessage> redisTemplate;
-    private final MemoryService memoryService;
     private final MemoryRetrievalService memoryRetrievalService;
     private final MoodService moodService;
     private final WebSearchService webSearchService;
     private final ProactiveMessageService proactiveMessageService;
+    private final CompanionIdentityService identityService;
+    private final CompanionResetService resetService;
+    private final ConversationMessageRepository conversationMessageRepository;
+    private final SettingsService settingsService;
 
     public ChatService(
             OllamaService ollamaService,
             RedisTemplate<String, ChatMessage> redisTemplate,
-            MemoryService memoryService,
             MemoryRetrievalService memoryRetrievalService,
             MoodService moodService, WebSearchService webSearchService,
-            ProactiveMessageService proactiveMessageService) {
+            ProactiveMessageService proactiveMessageService,
+            CompanionIdentityService identityService,
+            CompanionResetService resetService,
+            ConversationMessageRepository conversationMessageRepository,
+            SettingsService settingsService) {
 
         this.ollamaService = ollamaService;
         this.redisTemplate = redisTemplate;
-        this.memoryService = memoryService;
         this.memoryRetrievalService = memoryRetrievalService;
         this.moodService = moodService;
         this.webSearchService = webSearchService;
         this.proactiveMessageService = proactiveMessageService;
+        this.identityService = identityService;
+        this.resetService = resetService;
+        this.conversationMessageRepository = conversationMessageRepository;
+        this.settingsService = settingsService;
     }
 
     public String chat(String message) {
+        return resetService.withStableState(
+                () -> chatWithStableIdentity(message));
+    }
 
+    private String chatWithStableIdentity(String message) {
+        CompanionIdentity identity;
+        try {
+            identity = identityService.getIdentity();
+        } catch (ResponseStatusException exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Set up a companion identity before starting a conversation.");
+        }
+        if (settingsService.getProfile() == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Set up your user profile before starting a conversation.");
+        }
+
+        hydrateRedisConversation(identity);
         ChatMessage userMessage = new ChatMessage(
                 "user",
                 message
         );
+        persist(identity, userMessage);
 
         redisTemplate.opsForList()
                 .rightPush("conversation", userMessage);
@@ -61,15 +99,8 @@ public class ChatService {
                         messages
                 );
 
-        System.out.println(
-                "INTERACTION TYPE: "
-                        + interaction.interactionType()
-        );
-
-        System.out.println(
-                "CONFIDENCE: "
-                        + interaction.confidence()
-        );
+        log.debug("Evaluated interaction as {} with confidence {}.",
+                interaction.interactionType(), interaction.confidence());
 
         CompanionMood mood =
                 moodService.updateMood(
@@ -77,10 +108,7 @@ public class ChatService {
                         interaction.confidence()
                 );
 
-        System.out.println(
-                "CURRENT MOOD: "
-                        + mood.getMoodScore()
-        );
+        log.debug("Updated companion mood score to {}.", mood.getMoodScore());
 
         List<Memory> relevantMemories =
                 memoryRetrievalService.retrieveRelevantMemories(
@@ -88,34 +116,13 @@ public class ChatService {
                         5
                 );
 
-        List<Memory> activeMemories =
-                memoryService.getActiveMemories();
-
-        System.out.println(
-                "RELEVANT MEMORIES SENT TO MODEL:"
-        );
-
-        relevantMemories.forEach(memory ->
-                System.out.println(
-                        "id=" + memory.getId()
-                                + " | active=" + memory.isActive()
-                                + " | category=" + memory.getCategory()
-                                + " | content=" + memory.getContent()
-                )
-        );
-
         ToolDecision toolDecision =
                 ollamaService.evaluateToolDecision(
                         message,
                         messages
                 );
 
-        System.out.println(
-                "TOOL DECISION: "
-                        + toolDecision.action()
-                        + " | QUERY: "
-                        + toolDecision.query()
-        );
+        log.debug("Selected chat tool action: {}.", toolDecision.action());
 
         String response;
 
@@ -127,10 +134,7 @@ public class ChatService {
                             5
                     );
 
-            System.out.println(
-                    "WEB SEARCH RESULTS: "
-                            + webResults.size()
-            );
+            log.debug("Web search returned {} results.", webResults.size());
 
             response =
                     ollamaService.generateWithWebResults(
@@ -150,80 +154,25 @@ public class ChatService {
                     );
         }
 
-        MemoryEvaluation evaluation =
-                ollamaService.evaluateMemory(
-                        message,
-                        activeMemories,
-                        messages
-                );
-
-        if (evaluation.worthRemembering()
-                && evaluation.content() != null
-                && !evaluation.content().isBlank()) {
-
-            Memory memory = new Memory();
-
-            memory.setContent(
-                    evaluation.content()
-            );
-
-            memory.setCategory(
-                    evaluation.memoryCategory()
-            );
-
-            memory.setImportance(
-                    evaluation.importance()
-            );
-
-            memory.setConfidence(
-                    evaluation.confidence()
-            );
-
-            memory.setSupersedesId(
-                    evaluation.supersedesId()
-            );
-
-            memory.setRawExcerpt(
-                    message
-            );
-
-            memory.setReferenceCount(0);
-
-            memory.setActive(true);
-
-            memory.setSource(
-                    MemorySource.EXTRACTED
-            );
-
-            LocalDateTime now =
-                    LocalDateTime.now();
-
-            memory.setCreatedAt(now);
-            memory.setUpdatedAt(now);
-
-            System.out.println(
-                    "SAVING MEMORY: content="
-                            + memory.getContent()
-                            + " | supersedesId="
-                            + memory.getSupersedesId()
-            );
-
-            memoryService.save(memory);
+        try {
+            MemoryEvaluation evaluation = ollamaService.evaluateMemory(
+                    message, List.of(), messages);
+            if (evaluation.worthRemembering()
+                    && evaluation.content() != null
+                    && !evaluation.content().isBlank()) {
+                settingsService.proposeConversationFact(evaluation.content());
+            }
+        } catch (RestClientException | DataAccessException | IllegalStateException exception) {
+            log.warn("Could not extract or save a proposed personal fact; chat response is unaffected.",
+                    exception);
         }
-
-        System.out.println(
-                "MEMORY EVALUATION:"
-        );
-
-        System.out.println(
-                evaluation
-        );
 
         ChatMessage assistantMessage =
                 new ChatMessage(
                         "assistant",
                         response
                 );
+        persist(identity, assistantMessage);
 
         redisTemplate.opsForList()
                 .rightPush(
@@ -239,6 +188,42 @@ public class ChatService {
                 );
 
         return response;
+    }
+
+    public List<ConversationMessageResponse> getHistory() {
+        CompanionIdentity identity = identityService.getIdentity();
+        return conversationMessageRepository
+                .findByIdentityIdOrderByIdAsc(identity.getId())
+                .stream()
+                .map(message -> new ConversationMessageResponse(
+                        message.getId(),
+                        message.getRole(),
+                        message.getContent(),
+                        message.getCreatedAt()))
+                .toList();
+    }
+
+    private void persist(CompanionIdentity identity, ChatMessage message) {
+        ConversationMessage saved = new ConversationMessage();
+        saved.setIdentity(identity);
+        saved.setRole(message.role());
+        saved.setContent(message.content());
+        conversationMessageRepository.save(saved);
+    }
+
+    private void hydrateRedisConversation(CompanionIdentity identity) {
+        Long historyLength = redisTemplate.opsForList().size("conversation");
+        if (historyLength != null && historyLength > 0) {
+            return;
+        }
+        List<ConversationMessage> history = conversationMessageRepository
+                .findTop200ByIdentityIdOrderByIdDesc(identity.getId());
+        for (int index = history.size() - 1; index >= 0; index--) {
+            ConversationMessage item = history.get(index);
+            redisTemplate.opsForList().rightPush(
+                    "conversation",
+                    new ChatMessage(item.getRole(), item.getContent()));
+        }
     }
 
     private List<ChatMessage> getConversation() {

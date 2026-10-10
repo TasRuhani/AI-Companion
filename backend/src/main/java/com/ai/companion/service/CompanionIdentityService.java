@@ -4,6 +4,8 @@ import com.ai.companion.entity.CompanionIdentity;
 import com.ai.companion.repository.CompanionIdentityRepository;
 import org.springframework.stereotype.Service;
 import com.ai.companion.dto.CompanionInitializationRequest;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class CompanionIdentityService {
@@ -52,10 +54,6 @@ public class CompanionIdentityService {
                 request.values()
         );
 
-        identity.setRelationships(
-                request.relationships()
-        );
-
         identity.setSource(
                 com.ai.companion.entity.IdentitySource.USER_CREATED
         );
@@ -77,7 +75,8 @@ public class CompanionIdentityService {
         return identityRepository
                 .findFirstByActiveTrue()
                 .orElseThrow(() ->
-                        new IllegalStateException(
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
                                 "No active companion identity exists."
                         )
                 );
@@ -89,15 +88,18 @@ public class CompanionIdentityService {
         return identityRepository.save(identity);
     }
 
-    public void reset() {
-
-        identityRepository
-                .findFirstByActiveTrue()
-                .ifPresent(identity -> {
-
-                    identity.setActive(false);
-
-                    identityRepository.save(identity);
-                });
+    public CompanionIdentity updateActive(
+            CompanionInitializationRequest request) {
+        CompanionIdentity identity = identityRepository.findFirstByActiveTrue()
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "No active companion identity exists."));
+        identity.setName(request.name());
+        identity.setPersonality(request.personality());
+        identity.setBackground(request.background());
+        identity.setHistory(request.history());
+        identity.setSpeechStyle(request.speechStyle());
+        identity.setValues(request.values());
+        return identityRepository.save(identity);
     }
+
 }
